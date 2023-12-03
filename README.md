@@ -15,7 +15,7 @@ This project explores the factors that influence bar ratings based on the Yelp d
 ## Key findings:
 
 - Certain periods of opening hours may be associated with higher ratings.
-- Specific attributes (such as facilities, atmosphere, etc.) may have some correlation with the bar rating.
+- Specific attributes may have some correlation with the bar rating.
 - Geographical factors may also have an impact on bar ratings.
 
 ## project outcome:
