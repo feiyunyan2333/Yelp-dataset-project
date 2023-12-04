@@ -1,0 +1,247 @@
+---
+title: "Untitled"
+author: "Xingyu Tang"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(topicmodels)
+```
+
+```{r}
+attrs <- read_csv('E:/Fall_2023/stat628/module3/attempt2/barsAttr.csv')
+attrs
+```
+
+```{r}
+review <- read_csv('E:/Fall_2023/stat628/module3/attempt2/barReview.csv')
+# head(review)
+```
+
+#### radar chart
+
+
+```{r}
+library(fmsb)
+```
+
+
+```{r}
+index <- sample(1:dim(attrs)[1], 1)
+review.filter <- filter(review, review$business_id == attrs$business_id[index])
+```
+
+```{r}
+review.filter
+```
+
+```{r}
+useful <- (review.filter[, 5] - min(review.filter[, 5])) / (max(review.filter[, 5]) - min(review.filter[, 5]))
+funny <- (review.filter[, 6] - min(review.filter[, 6])) / (max(review.filter[, 6]) - min(review.filter[, 6]))
+cool <- (review.filter[, 7] - min(review.filter[, 7])) / (max(review.filter[, 7]) - min(review.filter[, 7]))
+
+review.rader <- data.frame(
+    row.names = c("Max", "Min", "Average_Business"),
+    useful = c(max(useful), min(useful), sum(useful)/dim(useful)[1]),
+    funny = c(max(funny), min(funny), sum(funny)/dim(funny)[1]),
+    cool = c(max(cool), min(cool), sum(cool)/dim(cool)[1])
+)
+
+color = "#00AFBB"
+radarchart(review.rader, 
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    cglcol = "grey", cglty = 1)
+```
+#### word cloud 
+
+```{r}
+library(wordcloud2) 
+```
+
+```{r}
+reviewFreq <- review.filter %>%
+  unnest_tokens(word, text) |>
+  filter(!(word %in% stop_words$word)) |>
+  group_by(word) |>
+  summarise(n = n()) |>
+  arrange(-n)
+  
+reviewFreq$n <- reviewFreq$n / sum(reviewFreq$n)
+reviewFreq
+```
+
+```{r}
+wordcloud2(data=reviewFreq[1:200, ],, size = 0.7, shape = 'star')
+```
+
+#### lda
+
+```{r}
+# index <- sample(1:dim(attrs)[1], 1)
+# attrs[index, ]
+review.filter <- filter(review, review$business_id == attrs$business_id[attrs$name == "Elsa's Mexican Restaurant"])
+review.filter <- review.filter[, c(2,3,4,8,9)]
+review.filter
+```
+```{r}
+users <- unique(review.filter$user_id)
+user <- numeric(dim(review.filter)[1])
+for (i in 1:dim(review.filter)[1]){
+  for (j in 1:length(users)){
+    if (users[j] == review.filter$user_id[i]){
+      user[i] = j
+    }
+  }
+}
+review.filter$user <- user
+review.filter
+```
+
+
+```{r}
+review.filter.dtm <- review.filter %>%
+  unnest_tokens(word, text) |>
+  filter(!(word %in% stop_words$word)) |>
+  count(user, word) |>
+  cast_dtm(user, word, n)
+
+review.filter.dtm
+```
+
+```{r}
+fit <- LDA(review.filter.dtm, k = 3, control = list(seed = 621))
+```
+
+
+```{r}
+fit
+```
+
+
+#### beta
+
+```{r}
+beta <- tidy(fit, matrix = "beta") %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 20) %>%
+  mutate(term = reorder_within(term, beta, topic))
+
+beta
+```
+
+
+```{r, fig.width = 9, fig.height=5}
+ggplot(beta) +
+  geom_col(aes(beta, term, fill = factor(topic)), width = 1) +
+  scale_y_reordered() +
+  facet_wrap(~ factor(topic), ncol = 3, scales = "free_y") +
+  labs(fill = "Topic") +
+  theme(axis.text.y = element_text(size = 8))
+```
+
+
+
+
+#### shiny
+
+```{r}
+library(shiny)
+```
+
+```{r}
+ui <- fluidPage(
+  h3("Suggestion For Each Bar"),
+  sidebarLayout(
+    sidebarPanel(
+      verticalLayout(
+        selectInput("id", "Bar", choices = attrs$name),
+        plotOutput("wordcloud")
+      )
+    ),
+    mainPanel(plotOutput("lda", height = 800))
+  ),
+  dataTableOutput("table")
+)
+
+server <- function(input, output) {
+  
+  output$lda <- renderPlot({
+    
+    bar_name <- input$id
+    review.filter <- filter(review, review$business_id == attrs$business_id[attrs$name == bar_name])
+    
+    users <- unique(review.filter$user_id)
+    user <- numeric(dim(review.filter)[1])
+    for (i in 1:dim(review.filter)[1]){
+      for (j in 1:length(users)){
+        if (users[j] == review.filter$user_id[i]){
+          user[i] = j
+        }
+      }
+    }
+    review.filter$user <- user
+
+    review.filter.dtm <- review.filter %>%
+      unnest_tokens(word, text) |>
+      filter(!(word %in% stop_words$word)) |>
+      count(user, word) |>
+      cast_dtm(user, word, n)
+
+
+    fit <- LDA(review.filter.dtm, k = 3, control = list(seed = 621))
+
+    beta <- tidy(fit, matrix = "beta") %>%
+      group_by(topic) %>%
+      slice_max(beta, n = 25) %>%
+      mutate(term = reorder_within(term, beta, topic))
+
+    ggplot(beta) +
+      geom_col(aes(beta, term, fill = factor(topic)), width = 1) +
+      scale_y_reordered() +
+      facet_wrap(~ factor(topic), ncol = 3, scales = "free_y") +
+      labs(fill = "Topic") +
+      theme(axis.text.y = element_text(size = 8))
+    
+  })
+  
+  
+  output$table <- renderDataTable({
+    bar_name <- input$id
+    filter(review, review$business_id == attrs$business_id[attrs$name == bar_name])
+  })
+}
+
+
+shinyApp(ui, server)
+```
+
+
+
+```{r}
+attrs
+```
+
+```{r}
+df <- read_csv('E:/Fall_2023/stat628/module3/attempt2/Comparison_Statistics.csv')
+df
+```
+```{r}
+noisy <- c('None', 'quiet', 'average', 'loud', 'very_loud')
+ggplot(df) +
+  geom_bar(aes(case, NoiseLevel, fill = factor(case)), stat = "identity") +
+  labs(x = "Noise Level", y = "Average Stars") +
+  scale_x_continuous(breaks = df$case, labels = noisy) +
+  theme(legend.position = "None")
+```
+
+
+
+
+
+
+
+
+
