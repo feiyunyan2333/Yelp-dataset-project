@@ -1,0 +1,325 @@
+---
+title: "Untitled"
+author: "Feiyun Yan"
+date: "2023-11-09"
+output: html_document
+---
+
+```{r}
+
+library(ggplot2)
+library(jsonlite)
+
+ilj <- stream_in(file("business.json"))
+
+head(ilj)
+library(tidyjson)
+library(dplyr)
+library(purrr)
+haha <- map(ilj$attributes, function(x) unlist(names(x)))
+nam_list <- unique(unlist(haha))
+
+
+df <- data.frame(id = names(ilj$name), name = unlist(ilj$name))
+
+for(j in nam_list){
+  nam1 <- integer(0)
+  nam <- integer(0)
+  for(i in names(ilj$attributes)){
+  nam1 <- ilj$attributes[[i]][[j]]
+  if(is.null(nam1)){
+    nam <- c(nam, NA)
+  }else{
+    nam <- c(nam, nam1)
+  }
+  }
+  
+  df[[j]] <- nam
+}
+df$state <- unlist(ilj$state)
+df$reviewcount <- unlist(ilj$review_count)
+
+df$star <- unlist(ilj$stars)
+ggplot()+
+  geom_bar(aes(x = df2$star))
+
+ggplot(df2, aes(x = factor(star))) +
+  geom_bar(fill = "#0073C2FF", color = "black", alpha = 0.7, linewidth = 0.5) +
+  labs(title = "Distribution of Yelp Star Ratings in Illinois",
+       x = "Star Rating",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(
+    stat = "count", aes(label = ..count..),
+    position = position_stack(vjust = 0.5),
+    color = "black", size = 3
+  )
+
+head(df)
+
+```
+
+
+```{r}
+df1 <- df |> select(RestaurantsPriceRange2, NoiseLevel, star, reviewcount)
+
+
+df2 <- na.omit(df1) |> mutate(
+    NoiseLevel = case_when(
+      grepl("quiet", NoiseLevel) ~ 1,
+      grepl("average", NoiseLevel) ~ 2,
+      grepl("loud", NoiseLevel) ~ 3,
+      grepl("very_loud", NoiseLevel) ~ 4,
+      TRUE ~ NA_integer_
+    ))
+
+df2$RestaurantsPriceRange2 <- as.factor(as.numeric(df2$RestaurantsPriceRange2))
+
+summary(lm(star ~ ., data = df2))
+```
+
+
+```{r}
+
+for(i in levels(as.factor(df2$star))){
+  mean(df2[df2$star == 1, ]$NoiseLevel)
+}
+
+library(corrplot)
+corrplot(cor(df2[-209,] |> select(NoiseLevel, star, reviewcount)))
+
+```
+
+
+### new attempt
+
+```{r}
+bars <- ilj[grepl("bar", ilj$categories, ignore.case = TRUE),]
+head(bars$hours, n=10)
+bars_c <- bars$hours[!rowSums(is.na(bars$hours[,])) == 7, ]
+bars_c$Rating <- bars[c(as.numeric(rownames(bars_c))),]$stars
+bars_c$id <- rownames(bars_c)
+
+```
+
+
+```{r}
+#fill up NAs
+bars_c[is.na(bars_c)] <-0
+```
+
+
+
+```{r}
+review <- read.csv("review.csv")
+need_clean <- read.csv("clean_state.csv")
+
+review <- review[!(review$business_id %in% unique(need_clean[,1])), ]
+
+haha <- as.Date(review$date)
+review$weekdays <- weekdays(haha)
+review$r_time <- substr(review$date, 12, 16)
+mon_rv <- review[which(review$weekdays == "Monday"),]
+
+```
+
+
+```{r}
+
+mon_rv$time <- as.POSIXlt(mon_rv$r_time, format = "%H:%M")
+
+# Generate 48 time intervals representing each half-hour in a day
+time_intervals <- seq(from = as.POSIXlt("00:00", format = "%H:%M"), 
+                      by = "30 mins", length.out = 49)  # 48 intervals, plus one for the end of the day
+77
+# Assign rows to intervals based on time
+mon_rv$interval <- cut(mon_rv$time, breaks = time_intervals, labels = FALSE)
+
+# Calculate the average star rating for each time interval
+average_stars <- aggregate(stars_y ~ interval, data = mon_rv, FUN = mean)
+
+# View the average stars for each time interval
+print(average_stars)
+
+names_time <- substr(as.character(time_intervals), 12, 16)
+
+```
+
+```{r}
+
+time_fun <- function(review, dates){
+mon_rv <- review[which(review$weekdays == dates),]
+
+mon_rv$time <- as.POSIXlt(mon_rv$r_time, format = "%H:%M")
+time_intervals <- seq(from = as.POSIXlt("00:00", format = "%H:%M"), 
+                      by = "30 mins", length.out = 49)
+mon_rv$interval <- cut(mon_rv$time, breaks = time_intervals, labels = FALSE)
+average_stars <- aggregate(stars_y ~ interval, data = mon_rv, FUN = mean)
+average_stars
+}
+tue_avg_star <- time_fun(review, "Tuesday")
+wed_avg_star <- time_fun(review, "Wednesday")
+thu_avg_star <- time_fun(review, "Thursday")
+fri_avg_star <- time_fun(review, "Friday")
+sat_avg_star <- time_fun(review, "Saturday")
+sun_avg_star <- time_fun(review, "Sunday")
+
+```
+
+
+
+### Monday
+```{r}
+convert_to_half_hour_intervals <- function(time_range) {
+  intervals <- rep(0, 48)  # 创建一个包含 48 个 0 的向量
+  
+  if (time_range == "0") {
+    intervals <- rep(0, 48)  # 如果时间范围为 "0"，则将所有值设为 0
+  } else if (time_range == "0:0-0:0") {
+    intervals <- rep(1, 48)  # 如果时间范围为 "0:0-0:0"，则将所有值设为 1
+  } else if (grepl("-", time_range)) {
+    time_parts <- strsplit(time_range, "-")[[1]]
+    start_time <- as.numeric(unlist(strsplit(time_parts[1], ":")))
+    end_time <- as.numeric(unlist(strsplit(time_parts[2], ":")))
+    
+    start_index <- start_time[1] * 2 + ifelse(start_time[2] == "30", 1, 0) + 1
+    end_index <- end_time[1] * 2 + ifelse(end_time[2] == "30", 1, 0) + 1
+    
+    # 如果结束时间小于开始时间，将交叉跨越的时间段设为 0
+    if (end_time[1] < start_time[1]) {
+      intervals[c(end_index:start_index)] <- 0
+      intervals[-c(end_index:start_index-1)] <- 1
+    } else {
+      intervals[start_index:end_index] <- 1  # 根据时间范围设置对应位置为 1
+    }
+  }
+  
+  return(intervals)
+}
+
+mon_data <- data.frame(t(sapply(bars_c$Monday,convert_to_half_hour_intervals)))
+colnames(mon_data) <- seq(0,23.5, by = 0.5)
+attr(mon_data, "row.names") <- bars_c$id
+sums <- colSums(mon_data)
+sums_df <- data.frame(column_names = names_time[-49], column_sums = sums)
+
+sums_df$column_names <- factor(sums_df$column_names, levels = sums_df$column_names[order(sums_df$column_names)])
+
+sums_df$avg_rat <- average_stars[,2]
+
+
+ggplot(sums_df, aes(x = column_names, y = column_sums, fill = avg_rat)) +
+  geom_col(width = 0.4, alpha = 0.7) +
+  labs(title = "Review Status on Monday", x = "Time period", y = "Review Count", fill = "Average Rating") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_gradient(low = "red", high = "green")
+```
+
+### plot_fun
+```{r}
+get_plot_fun <- function(data,num, avg_star){
+  mon_data <- data.frame(t(sapply(data[,num],convert_to_half_hour_intervals)))
+colnames(mon_data) <- seq(0,23.5, by = 0.5)
+attr(mon_data, "row.names") <- data$id
+sums <- colSums(mon_data)
+sums_df <- data.frame(column_names = names_time[-49], column_sums = sums)
+sums_df$column_names <- factor(sums_df$column_names, levels = sums_df$column_names[order(sums_df$column_names)])
+sums_df$avg_rat <- avg_star[,2]
+sums_df
+}
+
+tue_sum <- get_plot_fun(bars_c, 2, tue_avg_star)
+wed_sum <- get_plot_fun(bars_c, 3, wed_avg_star)
+thu_sum <- get_plot_fun(bars_c, 4, thu_avg_star)
+fri_sum <- get_plot_fun(bars_c, 5, fri_avg_star)
+sat_sum <- get_plot_fun(bars_c, 6, sat_avg_star)
+sun_sum <- get_plot_fun(bars_c, 7, sun_avg_star)
+
+#merge
+sums_df$week <- "Monday"
+tue_sum$week <- "Tuesday"
+wed_sum$week <- "Wednesday"
+thu_sum$week <- "Thursday"
+fri_sum$week <- "Friday"
+sat_sum$week <- "Saturday"
+sun_sum$week <- "Sunday"
+
+merged_sum <- rbind(sums_df, tue_sum, wed_sum)
+merged_sum1 <- rbind(thu_sum, fri_sum, sat_sum, sun_sum)
+merged_sum$week <- factor(merged_sum$week, levels = c("Monday", "Tuesday", "Wednesday"))
+merged_sum1$week <- factor(merged_sum1$week, levels = c("Thursday", "Friday", "Saturday", "Sunday"))
+```
+
+```{r, fig.width=7, fig.height=7}
+ggplot(merged_sum, aes(x = column_names, y = column_sums, fill = avg_rat)) +
+  geom_col(width = 0.4, alpha = 0.7) +
+  facet_wrap(.~week, ncol = 1)+
+  labs(title = "The Number of Bars Opening in each half hour of the Day", x = "Time period", y = "The number of bars", fill = "Average Rating") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text = element_text(size = 8)) +
+  scale_fill_gradient(low = "red", high = "green")
+
+```
+
+```{r, fig.width=7, fig.height=7}
+ggplot(merged_sum1, aes(x = column_names, y = column_sums, fill = avg_rat)) +
+  geom_col(width = 0.4, alpha = 0.7) +
+  facet_wrap(.~week, ncol = 1)+
+  labs(title = "The Number of Bars Opening in each half hour of the Day", x = "Time period", y = "The number of bars", fill = "Average Rating") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text = element_text(size = 8)) +
+  scale_fill_gradient(low = "red", high = "green")
+
+```
+
+```{r}
+set.seed(123)
+fin_df <- rbind(merged_sum, merged_sum1)
+
+fin_df <- within(fin_df, {
+  week <- as.factor(week)  # 将星期列转换为因子变量
+})
+
+# 使用 model.matrix 进行独热编码
+encoded_data <- cbind(fin_df[, !names(fin_df) %in% c("week")], model.matrix(~ week - 1, data = fin_df))
+
+# 可选的数据清洗和特征选择
+# 例如，选择特征列（时间段、平均评分、评论数量等）
+selected_features <- encoded_data
+
+# 划分训练集和测试集
+set.seed(123)
+train_indices <- sample(1:nrow(selected_features), 0.8*nrow(selected_features))
+train_data <- selected_features[train_indices, ]
+test_data <- selected_features[-train_indices, ]
+
+# 创建并训练决策树模型
+library(rpart)
+
+model <- rpart(avg_rat ~ ., data = train_data, method = "class")
+
+# 进行预测
+predictions <- predict(model, test_data)
+
+# 评估模型性能
+library(caret)
+
+# 计算准确率
+accuracy <- confusionMatrix(predictions, test_data$column_names)$overall['Accuracy']
+print(paste("Accuracy:", accuracy))
+
+# 查看决策树的结构和特征重要性
+printcp(model)  # 查看模型的交叉验证结果
+
+# 查看特征重要性
+varImp(model)
+
+head(predictions)
+head(test_data$column_names)
+
+write.csv(fin_df, "fin_df.csv")
+```
+
+
+
